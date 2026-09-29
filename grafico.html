@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<!-- COPIA de tablero/web/grafico.html (tablero@16d31d0). La fuente de verdad vive en el repo
+<!-- COPIA de tablero/web/grafico.html (tablero@5235b40). La fuente de verdad vive en el repo
      tablero; este archivo se reemplaza entero por bin/publicar_grafico, no se edita acá. -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<meta name="robots" content="noindex">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <!-- Esta página mete en el origen de vivo (8474) el PRIMER script de
      terceros del proyecto (lightweight-charts, abajo): ese mismo origen
@@ -25,8 +26,10 @@
      curl y comparando contra el hash sha256 que publica la API de
      jsDelivr) con `crossorigin="anonymous"` — si el CDN sirve otra cosa, el
      navegador se niega a ejecutarla en vez de correr lo que sea que haya
-     llegado. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src https://fapi.binance.com; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+     llegado. `frame-ancestors` NO va en este meta: solo vale como cabecera
+     HTTP (el navegador lo ignora acá y lo dice en consola) y GitHub Pages
+     no manda cabeceras propias. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src https://fapi.binance.com; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Punto de entrada · gráfico</title>
 <style>
   :root{

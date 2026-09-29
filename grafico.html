@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- COPIA de tablero/web/grafico.html (tablero@5235b40). La fuente de verdad vive en el repo
+<!-- COPIA de tablero/web/grafico.html (tablero@44358ee). La fuente de verdad vive en el repo
      tablero; este archivo se reemplaza entero por bin/publicar_grafico, no se edita acá. -->
 <html lang="es">
 <head>
@@ -513,7 +513,14 @@
       dirDiv.style.left = left + "px";
     }
     requestAnimationFrame(function () { requestAnimationFrame(pintarBadges); });
-    window.addEventListener("resize", function () { requestAnimationFrame(pintarBadges); });
+    // al cambiar el tamaño después de cargar (rotar el teléfono, vista
+    // dividida) autoSize re-dibuja pero conserva el espaciado de barras:
+    // sin re-aplicar el rango, las velas quedaban apretadas a la derecha
+    // con el resto del gráfico vacío (visto el 29-sep con SOL 1h).
+    window.addEventListener("resize", function () {
+      chart.timeScale().setVisibleLogicalRange({ from: desde - 0.5, to: confirmIdx + 6.5 });
+      requestAnimationFrame(pintarBadges);
+    });
 
     // ---------- horas: la vela en UTC (como TradingView la rotula) y la
     // ---------- local del navegador de quien mira, cada una con su marca. ----------

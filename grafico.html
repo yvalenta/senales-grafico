@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<!-- COPIA de tablero/web/grafico.html (tablero@16d31d0). La fuente de verdad vive en el repo
+     tablero; este archivo se reemplaza entero por bin/publicar_grafico, no se edita acá. -->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- Esta página mete en el origen de vivo (8474) el PRIMER script de
+     terceros del proyecto (lightweight-charts, abajo): ese mismo origen
+     sirve POST /compuerta, /diario y /accion, y una cookie httponly viaja
+     con cualquier fetch al mismo origen — con o sin llave (refutación del
+     27-sep: guardia deja pasar loopback/tailscale/túnel sin llave, y aun
+     con llave la cookie viaja igual). Si el paquete del CDN se compromete,
+     esta política le cierra DOS salidas, no una: `connect-src` sin 'self'
+     bloquea cualquier fetch/XHR de un script comprometido hacia /compuerta
+     o cualquier otro origen — grafico.html solo necesita fapi.binance.com,
+     nunca su propio origen; y `frame-src`/`child-src` en 'none' cierran la
+     otra vía (refutación del 28-sep: sin ellas, `default-src 'self'` dejaba
+     abrir un iframe al PROPIO origen, y desde ahí un script comprometido
+     podía manejar el DOM de esa otra página — que sí puede hablar con
+     /compuerta — en vez de hacerlo él mismo por red). Ninguna de las dos
+     alcanza sola: hace falta el par. `script-src` fija el único CDN que se
+     usa, y el `<script>` de abajo trae `integrity` (SRI, sha384 sobre el
+     archivo exacto de jsDelivr 4.1.3, verificado el 28-sep bajándolo con
+     curl y comparando contra el hash sha256 que publica la API de
+     jsDelivr) con `crossorigin="anonymous"` — si el CDN sirve otra cosa, el
+     navegador se niega a ejecutarla en vez de correr lo que sea que haya
+     llegado. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src https://fapi.binance.com; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>Punto de entrada · gráfico</title>
+<style>
+  :root{
+    --bg:#0e1621; --card:#182533; --card2:#1f2c3c; --border:#26374a;
+    --text:#e7edf3; --dim:#8ba0b5; --dim2:#5c7488;
+    --up:#26de81; --down:#ff5b5b; --entrada:#f0b90b; --stop:#ff5b5b; --obj:#26de81;
+    --link:#5fb0ff; --warn-bg:#3a2a12; --warn-bd:#8a6414; --warn-tx:#ffd479;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  body{min-height:100vh;display:flex;flex-direction:column;}
+  .wrap{max-width:480px;margin:0 auto;width:100%;padding:10px 10px 22px;}
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:2px 4px 10px;flex-wrap:wrap;}
+  header h1{font-size:15px;margin:0;font-weight:700;letter-spacing:.2px;}
+  header .tag{font-size:11px;color:var(--dim);background:var(--card2);border:1px solid var(--border);
+    border-radius:6px;padding:2px 7px;}
+  .dirchip{font-size:12px;font-weight:700;border-radius:6px;padding:3px 8px;}
+  .dirchip.up{background:rgba(38,222,129,.14);color:var(--up);}
+  .dirchip.down{background:rgba(255,91,91,.14);color:var(--stop);}
+  #status{font-size:12px;color:var(--dim);padding:2px 4px 8px;min-height:16px;}
+  #banner{display:none;font-size:12.5px;line-height:1.4;border-radius:8px;padding:9px 11px;margin:0 4px 10px;}
+  #banner.warn{display:block;background:var(--warn-bg);border:1px solid var(--warn-bd);color:var(--warn-tx);}
+  #banner.err{display:block;background:#3a1414;border:1px solid #8a2020;color:#ffb0b0;}
+  #chartbox{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;
+    padding:8px 6px 4px;}
+  #chart{width:100%;height:320px;}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 12px;padding:10px 8px 2px;font-size:11.5px;color:var(--dim);}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .dot{width:9px;height:3px;border-radius:2px;display:inline-block;}
+  .dot.entrada{background:var(--entrada);}
+  .dot.stop{background:var(--stop);}
+  .dot.obj{background:var(--obj);}
+  .hours{font-size:11.5px;color:var(--dim);text-align:center;padding:8px 6px 2px;line-height:1.5;}
+  .hours b{color:var(--text);}
+  .cta{display:block;text-align:center;margin:12px 4px 0;background:var(--card2);border:1px solid var(--border);
+    color:var(--link);text-decoration:none;font-size:13px;font-weight:600;padding:10px;border-radius:9px;}
+  .cta:active{opacity:.75;}
+  details{margin:14px 4px 0;background:var(--card);border:1px solid var(--border);border-radius:10px;
+    padding:2px 4px;}
+  summary{cursor:pointer;font-size:12px;color:var(--dim);padding:8px 8px;list-style:none;}
+  summary::-webkit-details-marker{display:none;}
+  summary:before{content:"▸ ";color:var(--dim2);}
+  details[open] summary:before{content:"▾ ";}
+  .tech{font-size:11.5px;line-height:1.75;color:var(--dim);padding:2px 10px 10px;}
+  .tech b{color:var(--text);}
+  .tech .ok{color:#8be6ae;}
+  .tech .bad{color:var(--warn-tx);}
+  .tech div{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline;}
+  code.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0b1420;
+    padding:1px 5px;border-radius:4px;color:#ffd479;}
+  .badge{position:absolute;font-size:11px;font-weight:700;white-space:nowrap;padding:2px 6px;
+    border-radius:5px;line-height:1.5;box-shadow:0 1px 4px rgba(0,0,0,.4);letter-spacing:.2px;}
+  .badge.dir{font-size:12px;}
+  .badge.dir.up{background:#173a26;color:#3fe08a;border:1px solid #2b7a4e;}
+  .badge.dir.down{background:#3a1616;color:#ff7a7a;border:1px solid #7a2b2b;}
+  footer.attrib{text-align:center;font-size:10.5px;color:var(--dim2);padding:16px 12px 4px;}
+  footer.attrib a{color:var(--dim2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="titulo">—</h1>
+    </div>
+    <span class="tag" id="tftag">—</span>
+    <span class="dirchip" id="dirchip">—</span>
+  </header>
+
+  <div id="status">cargando velas de fapi.binance.com…</div>
+  <div id="banner"></div>
+
+  <div id="chartbox" style="position:relative;"><div id="chart"></div><div id="overlay" style="position:absolute;inset:8px 6px 4px;pointer-events:none;z-index:20;"></div></div>
+
+  <div class="legend">
+    <span><i class="dot entrada"></i>ENTRADA <b id="leg-e">—</b></span>
+    <span><i class="dot stop"></i>STOP <b id="leg-s">—</b></span>
+    <span><i class="dot obj"></i>OBJETIVO <b id="leg-o">—</b></span>
+  </div>
+
+  <div class="hours" id="horas">—</div>
+
+  <a class="cta" id="tvlink" href="#" target="_blank" rel="noopener">↗ abrir en TradingView</a>
+
+  <details id="detalle">
+    <summary>detalle técnico (pivotes recalculados en vivo)</summary>
+    <div class="tech" id="tech"></div>
+  </details>
+
+  <footer class="attrib">gráfico: <a href="https://www.tradingview.com/" target="_blank" rel="noopener">Lightweight Charts © TradingView</a></footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" integrity="sha384-JZigAjwiaZtkUbA44CWkPaT3iBb/mU5pO6QOANp+OqHd4q+1+7MG1kzp2OOP9ZfP" crossorigin="anonymous"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- helpers de DOM que jamás asignan marcado crudo al documento
+  // ---------- (línea roja del refutador: todo lo que viene de qs.get()
+  // ---------- llega al documento por textContent / createTextNode, nunca
+  // ---------- parseado como HTML). ----------
+  function txt(s){ return document.createTextNode(String(s)); }
+  function el(tag, cls, hijos){
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    (hijos || []).forEach(h => e.appendChild(typeof h === "string" ? txt(h) : h));
+    return e;
+  }
+  function poner(nodo, hijos){
+    while (nodo.firstChild) nodo.removeChild(nodo.firstChild);
+    (hijos || []).forEach(h => nodo.appendChild(typeof h === "string" ? txt(h) : h));
+  }
+
+  // ---------- contrato de parámetros de la URL ----------
+  // Exactamente estos ocho, ni uno más: par, tf, vc, e, s, o, d, c (test_web.py
+  // los verifica por nombre). La página asume PERP para las velas (fapi) — es
+  // el único libro que esta página sabe leer — así que no hay parámetro de
+  // fuente: si algún día hace falta spot, es un contrato nuevo, no un default
+  // silencioso.
+  const qs = new URLSearchParams(location.search);
+  function numFinito(crudo){
+    if (crudo === null || crudo === undefined || String(crudo).trim() === "") return NaN;
+    const n = Number(crudo);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  const TF_VALIDOS = {"5m": 300, "15m": 900, "1h": 3600};
+  const TV_INTERVALO = {"5m": "5", "15m": "15", "1h": "60"};
+
+  const parCrudo = (qs.get("par") || "").toUpperCase();
+  const tfCrudo = qs.get("tf") || "";
+  const dCrudo = (qs.get("d") || "").toLowerCase();
+  const vcNum = numFinito(qs.get("vc"));
+  const eNum = numFinito(qs.get("e"));
+  const sNum = numFinito(qs.get("s"));
+  const oNum = numFinito(qs.get("o"));
+  const cNum = numFinito(qs.get("c"));
+
+  const invalidos = [];
+  if (!/^[A-Z0-9]{5,20}$/.test(parCrudo)) invalidos.push("par");
+  if (!Object.prototype.hasOwnProperty.call(TF_VALIDOS, tfCrudo)) invalidos.push("tf");
+  if (Number.isNaN(vcNum) || !Number.isInteger(vcNum)) invalidos.push("vc");
+  if (Number.isNaN(eNum)) invalidos.push("e");
+  if (Number.isNaN(sNum)) invalidos.push("s");
+  if (Number.isNaN(oNum)) invalidos.push("o");
+  if (dCrudo !== "up" && dCrudo !== "down") invalidos.push("d");
+  if (Number.isNaN(cNum)) invalidos.push("c");
+
+  const statusEl = document.getElementById("status");
+  const bannerEl = document.getElementById("banner");
+  function banner(kind, hijos){
+    bannerEl.className = kind || "";
+    if (!kind) { bannerEl.style.display = "none"; return; }
+    bannerEl.style.display = "";
+    poner(bannerEl, hijos);
+  }
+
+  if (invalidos.length){
+    // Nada se pide a fapi sin parámetros válidos: no hay nada confiable que
+    // dibujar, y una vela a medias es peor que ninguna vela.
+    statusEl.textContent = "";
+    banner("err", [
+      "⚠️ Faltan o son inválidos los parámetros de la URL: ",
+      el("code", "mono", [invalidos.join(", ")]),
+      ". No se puede dibujar el punto de entrada sin ellos."
+    ]);
+    document.getElementById("chartbox").style.display = "none";
+    document.getElementById("detalle").style.display = "none";
+    return;
+  }
+
+  const P = { par: parCrudo, tf: tfCrudo, vc: vcNum, e: eNum, s: sNum, o: oNum, d: dCrudo, c: cNum };
+  const paso = TF_VALIDOS[P.tf];
+  const tvSimbolo = P.par + ".P"; // perp asumido — ver nota del contrato arriba
+
+  function fmtPrecio(v){
+    if (v === null || v === undefined || Number.isNaN(v)) return "—";
+    return Math.abs(v) >= 100 ? v.toFixed(2) : v.toFixed(4);
+  }
+  function horaUTC(tSec){
+    const dt = new Date(tSec * 1000);
+    return String(dt.getUTCHours()).padStart(2, "0") + ":" + String(dt.getUTCMinutes()).padStart(2, "0");
+  }
+  // La hora LOCAL es la del navegador de quien mira, no una zona fija a mano
+  // (Bogotá, UTC-5…): Intl.DateTimeFormat con timeZoneName trae la
+  // abreviatura real de esa zona (p. ej. "GMT-5", "CEST") — sin ella, un
+  // lector en otro huso ve una hora sin decir de qué huso es.
+  function horaLocal(tSec){
+    const dt = new Date(tSec * 1000);
+    const hh = String(dt.getHours()).padStart(2, "0");
+    const mm = String(dt.getMinutes()).padStart(2, "0");
+    let abrev = "";
+    try {
+      const partes = new Intl.DateTimeFormat(undefined,
+        { hour: "2-digit", minute: "2-digit", hour12: false, timeZoneName: "short" }).formatToParts(dt);
+      const tz = partes.find(function (p) { return p.type === "timeZoneName"; });
+      if (tz) abrev = tz.value;
+    } catch (err) { /* sin Intl.timeZoneName: se muestra la hora igual, sin abreviatura */ }
+    return { txt: hh + ":" + mm, abrev: abrev };
+  }
+
+  document.getElementById("titulo").textContent = tvSimbolo;
+  document.getElementById("tftag").textContent = P.tf;
+  const dirchip = document.getElementById("dirchip");
+  dirchip.textContent = P.d === "up" ? "▲ LONG" : "▼ SHORT";
+  dirchip.className = "dirchip " + P.d;
+  document.getElementById("leg-e").textContent = fmtPrecio(P.e);
+  document.getElementById("leg-s").textContent = fmtPrecio(P.s);
+  document.getElementById("leg-o").textContent = fmtPrecio(P.o);
+  const tvInt = TV_INTERVALO[P.tf];
+  const tvlink = document.getElementById("tvlink");
+  tvlink.href = "https://www.tradingview.com/chart/?symbol=BINANCE:" + encodeURIComponent(tvSimbolo) +
+    "&interval=" + tvInt;
+  tvlink.textContent = "↗ abrir en TradingView (" + P.tf + ")";
+
+  // ---------- MISMA regla k=2 de vivo.py _pivotes — ver test_web.py, que la
+  // ---------- extrae de este archivo (marcadores PIVOTES-INICIO/FIN) y la
+  // ---------- corre con node contra vivo._pivotes real. Si un día diverge
+  // ---------- (redondeo, un caso límite), esta página lo AVISA en pantalla,
+  // ---------- nunca lo tapa. ----------
+  // ===PIVOTES-INICIO===
+  function pivotes(maximos, minimos, k){
+    k = k || 2;
+    const altos = [], bajos = [];
+    for (let i = k; i < maximos.length - k; i++){
+      let esAlto = true, esBajo = true;
+      for (let j = i - k; j <= i + k; j++){
+        if (j === i) continue;
+        if (!(maximos[i] > maximos[j])) esAlto = false;
+        if (!(minimos[i] < minimos[j])) esBajo = false;
+      }
+      if (esAlto) altos.push(i);
+      if (esBajo) bajos.push(i);
+    }
+    return { altos: altos, bajos: bajos };
+  }
+  // ===PIVOTES-FIN===
+
+  // ---------- gráfico ----------
+  // Si el CDN no cargó (bloqueado, sin red, o un día el archivo no coincide
+  // con el `integrity` del <script>), `LightweightCharts` no existe y
+  // `createChart` tiraba un ReferenceError SIN capturar: la página quedaba
+  // para siempre en "cargando velas…", sin ningún aviso (bajo del 27-sep).
+  // El enlace de TradingView (armado arriba, antes de este punto) sigue
+  // siendo el respaldo — no depende del CDN.
+  if (typeof LightweightCharts === "undefined") {
+    statusEl.textContent = "";
+    banner("err", [
+      "⚠️ No se pudo cargar el gráfico (la librería de cdn.jsdelivr.net no " +
+      "llegó: red bloqueada, o el archivo servido no coincide con el " +
+      "esperado). Usá el enlace de arriba para abrirlo en TradingView."
+    ]);
+    document.getElementById("chartbox").style.display = "none";
+    document.getElementById("detalle").style.display = "none";
+    return;
+  }
+
+  let chart, serie;
+  try {
+    chart = LightweightCharts.createChart(document.getElementById("chart"), {
+      layout: { background: { type: "solid", color: "#182533" }, textColor: "#8ba0b5", fontSize: 11 },
+      grid: { vertLines: { color: "#20303f" }, horzLines: { color: "#20303f" } },
+      rightPriceScale: { borderColor: "#26374a" },
+      timeScale: {
+        borderColor: "#26374a", timeVisible: true, secondsVisible: false, rightOffset: 6,
+        tickMarkFormatter: function (t) { return horaUTC(t) + "z"; }
+      },
+      crosshair: { mode: 0 },
+      localization: {
+        timeFormatter: function (t) { return horaUTC(t) + " UTC"; },
+        priceFormatter: fmtPrecio
+      },
+      autoSize: true,
+      handleScroll: { mouseWheel: true, pressedMouseMove: true },
+      handleScale: { mouseWheel: true, pinch: true }
+    });
+
+    serie = chart.addCandlestickSeries({
+      upColor: "#26de81", downColor: "#ff5b5b", borderVisible: false,
+      wickUpColor: "#26de81", wickDownColor: "#ff5b5b",
+      priceLineVisible: false, lastValueVisible: false
+    });
+  } catch (err) {
+    // mismo aviso que la ausencia del CDN: una versión de la librería que
+    // cambió su API no puede dejar la página muda
+    statusEl.textContent = "";
+    banner("err", [
+      "⚠️ No se pudo dibujar el gráfico (" + String(err && err.message || err) +
+      "). Usá el enlace de arriba para abrirlo en TradingView."
+    ]);
+    document.getElementById("chartbox").style.display = "none";
+    document.getElementById("detalle").style.display = "none";
+    return;
+  }
+
+  async function cargar(){
+    // endTime=vc*1000 y limit=96, igual que el relay (bin/relay_senales.py /
+    // vivo.py estructura()): la ÚLTIMA kline devuelta abre en vc (todavía en
+    // formación, se descarta) y las 95 anteriores son las CERRADAS sobre las
+    // que se leyó la estructura real — mismo recorte, mismo resultado.
+    const endTimeMs = P.vc * 1000;
+    const url = "https://fapi.binance.com/fapi/v1/klines?symbol=" + encodeURIComponent(P.par) +
+      "&interval=" + encodeURIComponent(P.tf) + "&endTime=" + endTimeMs + "&limit=96";
+    let raw;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      raw = await r.json();
+    } catch (err) {
+      statusEl.textContent = "";
+      banner("err", [
+        "⚠️ No se pudieron leer las velas de ",
+        el("code", "mono", ["fapi.binance.com"]),
+        ": " + String((err && err.message) || err) + ". Sin datos no se dibuja el punto de entrada."
+      ]);
+      return;
+    }
+    if (!Array.isArray(raw) || raw.length < 10){
+      banner("err", ["⚠️ Binance devolvió muy pocas velas (" + (raw ? raw.length : 0) +
+        "). No alcanza para leer estructura."]);
+      return;
+    }
+
+    // el futuro no se conoce al emitir la señal: la última vela leída, si
+    // abrió exactamente en vc, todavía está en formación y se descarta —
+    // igual que vivo.py / reproducir.py.
+    let cerradas = raw;
+    let corteOk = false;
+    const ultimaOpen = Math.floor(raw[raw.length - 1][0] / 1000);
+    if (ultimaOpen === P.vc){
+      cerradas = raw.slice(0, -1);
+      corteOk = true;
+    }
+
+    const candles = cerradas.map(function (k) {
+      return { time: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4] };
+    });
+    serie.setData(candles);
+
+    const n = candles.length;
+    const confirmIdx = n - 1;
+    const confirmC = candles[confirmIdx];
+    const highs = candles.map(function (c) { return c.high; });
+    const lows = candles.map(function (c) { return c.low; });
+
+    // ---------- verificación: el cuello recalculado en vivo vs el
+    // ---------- informado por la tarjeta (LONG: último pivote alto; SHORT:
+    // ---------- último pivote bajo), comparado contra la entrada `e`. ----------
+    const piv = pivotes(highs, lows, 2);
+    const idxs = P.d === "up" ? piv.altos : piv.bajos;
+    let idxCuello = null, cuelloCalc = null;
+    if (idxs.length){
+      idxCuello = idxs[idxs.length - 1];
+      cuelloCalc = (P.d === "up" ? highs : lows)[idxCuello];
+    }
+    const tolAbs = Math.max(0.0005, Math.abs(P.e) * 1e-5);
+    const coincideCuello = cuelloCalc !== null && Math.abs(cuelloCalc - P.e) <= tolAbs;
+
+    if (cuelloCalc === null){
+      banner("warn", ["⚠️ No se pudo recalcular el cuello (pivotes insuficientes en la ventana leída). " +
+        "Se muestran igual la entrada, el stop y el objetivo informados por la señal (no inventados: " +
+        "vienen de la tarjeta)."]);
+    } else if (!coincideCuello){
+      banner("warn", [
+        "⚠️ El cuello recalculado en vivo (",
+        el("code", "mono", [fmtPrecio(cuelloCalc)]),
+        ") no coincide con la entrada informada (",
+        el("code", "mono", [fmtPrecio(P.e)]),
+        "). Se dibuja igual la entrada/stop/objetivo tal como los publicó la tarjeta, nunca lo calculado."
+      ]);
+    } else {
+      banner("", []);
+    }
+    if (!corteOk){
+      const extra = el("div", "", ["⚠️ La última vela leída no abrió exactamente en ",
+        el("code", "mono", ["vc"]), "; puede incluir una vela aún en formación."]);
+      if (bannerEl.style.display === "none"){
+        banner("warn", [extra]);
+      } else {
+        bannerEl.appendChild(el("br"));
+        bannerEl.appendChild(extra);
+      }
+    }
+
+    // ---------- líneas de precio (ancho completo, rótulo en el eje) ----------
+    serie.createPriceLine({ price: P.e, color: "#f0b90b", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "" });
+    serie.createPriceLine({ price: P.s, color: "#ff5b5b", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "" });
+    serie.createPriceLine({ price: P.o, color: "#26de81", lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: "" });
+
+    // ---------- el segmento del cuello: nace en el pivote, llega a la vela de confirmación ----------
+    const pivoteIdx = (idxCuello !== null && idxCuello >= 0 && idxCuello < n) ? idxCuello : Math.max(0, confirmIdx - 10);
+    const necklineSerie = chart.addLineSeries({
+      color: "#5fb0ff", lineWidth: 3, lineStyle: 0, priceLineVisible: false, lastValueVisible: false,
+      crosshairMarkerVisible: false
+    });
+    necklineSerie.setData([
+      { time: candles[pivoteIdx].time, value: P.e },
+      { time: confirmC.time, value: P.e }
+    ]);
+
+    // ---------- rango vertical manual: entrada + stop + objetivo + velas visibles ----------
+    const desde = Math.max(0, n - 42);
+    const visibles = candles.slice(desde);
+    let lo = Math.min(P.e, P.s, P.o, Math.min.apply(null, visibles.map(function (c) { return c.low; })));
+    let hi = Math.max(P.e, P.s, P.o, Math.max.apply(null, visibles.map(function (c) { return c.high; })));
+    const pad = (hi - lo) * 0.14 || 1;
+    lo -= pad; hi += pad;
+    serie.applyOptions({ autoscaleInfoProvider: function () { return { priceRange: { minValue: lo, maxValue: hi } }; } });
+
+    // rango lógico (por índice de barra): deja aire a la derecha de la vela
+    // de confirmación para los rótulos, en vez del recorte por tiempo (no
+    // hay datos futuros que mostrar).
+    chart.timeScale().setVisibleLogicalRange({ from: desde - 0.5, to: confirmIdx + 6.5 });
+
+    // ---------- marcador de dirección + confirmación al cierre (overlay HTML) ----------
+    const overlay = document.getElementById("overlay");
+    function pintarBadges(){
+      while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+      const x = chart.timeScale().timeToCoordinate(confirmC.time);
+      const yHigh = serie.priceToCoordinate(confirmC.high);
+      const yLow = serie.priceToCoordinate(confirmC.low);
+      const yE = serie.priceToCoordinate(P.e);
+      const yS = serie.priceToCoordinate(P.s);
+      const yO = serie.priceToCoordinate(P.o);
+      if (x === null || yHigh === null || yLow === null) return;
+      const boxW = overlay.clientWidth || 1, boxH = overlay.clientHeight || 1;
+      const ejeReservado = 60;
+
+      const dirDiv = el("div", "badge dir " + P.d,
+        [(P.d === "up" ? "▲ LONG" : "▼ SHORT") + " · ✅ cerró " + fmtPrecio(P.c)]);
+      dirDiv.style.top = "-9999px";
+      dirDiv.style.left = "-9999px";
+      overlay.appendChild(dirDiv);
+      const w = dirDiv.offsetWidth || 160;
+      const h = dirDiv.offsetHeight || 24;
+      const margen = 4;
+
+      const distLineas = function (y) {
+        return Math.min(yE === null ? 1e9 : Math.abs(y - yE), yS === null ? 1e9 : Math.abs(y - yS),
+          yO === null ? 1e9 : Math.abs(y - yO));
+      };
+      const libre = function (top) {
+        const b0 = top - margen, b1 = top + h + margen;
+        const pisa = function (y) { return y !== null && y >= b0 && y <= b1; };
+        return !pisa(yE) && !pisa(yS) && !pisa(yO);
+      };
+      const topArriba = yHigh - h - margen;
+      const topAbajo = yLow + margen;
+      const arribaLibre = libre(topArriba), abajoLibre = libre(topAbajo);
+
+      let top;
+      if (arribaLibre && abajoLibre){
+        const scoreArriba = Math.min(distLineas(topArriba), topArriba);
+        const scoreAbajo = Math.min(distLineas(topAbajo), boxH - (topAbajo + h));
+        top = scoreArriba >= scoreAbajo ? topArriba : topAbajo;
+      } else if (arribaLibre){
+        top = topArriba;
+      } else if (abajoLibre){
+        top = topAbajo;
+      } else {
+        const obstaculos = [[yHigh, yLow]];
+        [yE, yS, yO].forEach(function (y) { if (y !== null) obstaculos.push([y - margen, y + margen]); });
+        obstaculos.sort(function (a, b) { return a[0] - b[0]; });
+        const huecos = [];
+        let cursor = 0;
+        obstaculos.forEach(function (ab) {
+          if (ab[0] > cursor) huecos.push([cursor, ab[0]]);
+          cursor = Math.max(cursor, ab[1]);
+        });
+        if (boxH > cursor) huecos.push([cursor, boxH]);
+        let mejor = huecos[0] || [0, boxH];
+        huecos.forEach(function (hu) { if ((hu[1] - hu[0]) > (mejor[1] - mejor[0])) mejor = hu; });
+        top = (mejor[0] + mejor[1] - h) / 2;
+      }
+      top = Math.max(0, Math.min(top, boxH - h));
+      dirDiv.style.top = top + "px";
+      let left = x - w / 2;
+      left = Math.max(4, Math.min(left, boxW - ejeReservado - w));
+      dirDiv.style.left = left + "px";
+    }
+    requestAnimationFrame(function () { requestAnimationFrame(pintarBadges); });
+    window.addEventListener("resize", function () { requestAnimationFrame(pintarBadges); });
+
+    // ---------- horas: la vela en UTC (como TradingView la rotula) y la
+    // ---------- local del navegador de quien mira, cada una con su marca. ----------
+    const aperturaUTC = horaUTC(confirmC.time), cierreUTC = horaUTC(confirmC.time + paso);
+    const aLocal = horaLocal(confirmC.time), cLocal = horaLocal(confirmC.time + paso);
+    poner(document.getElementById("horas"), [
+      "vela ", el("b", "", [aperturaUTC + "–" + cierreUTC + " UTC"]),
+      " · local ", el("b", "", [aLocal.txt + "–" + cLocal.txt + (aLocal.abrev ? " " + aLocal.abrev : "")])
+    ]);
+
+    // ---------- detalle técnico (transparencia: nunca tapar el desacuerdo) ----------
+    const techEl = document.getElementById("tech");
+    function linea(ok, hijos){
+      return el("div", "", [el("span", ok ? "ok" : "bad", [ok ? "✓" : "✗"]), " "].concat(hijos));
+    }
+    const filas = [];
+    filas.push(el("div", "", [el("b", "", ["velas leídas:"]), " " + n +
+      " cerradas (fapi.binance.com, endTime=" + P.vc + "000, limit=96)"]));
+    filas.push(el("div", "", [el("b", "", ["vela de confirmación:"]), " índice " + confirmIdx +
+      " · apertura " + confirmC.time + " (" + aperturaUTC + " UTC)"]));
+    if (cuelloCalc === null){
+      filas.push(el("div", "bad", ["✗ pivotes insuficientes para recalcular el cuello en esta ventana"]));
+    } else {
+      filas.push(linea(coincideCuello, [
+        "cuello recalculado ", el("code", "mono", [fmtPrecio(cuelloCalc)]),
+        " (vela idx " + idxCuello + ") vs entrada informada ", el("code", "mono", [fmtPrecio(P.e)])
+      ]));
+    }
+    filas.push(linea(corteOk, ["el corte de vela (última vela leída = vela aún en formación, descartada) " +
+      (corteOk ? "se verificó" : "NO se pudo verificar")]));
+    poner(techEl, filas);
+
+    statusEl.textContent = "";
+  }
+
+  cargar();
+})();
+</script>
+</body>
+</html>
